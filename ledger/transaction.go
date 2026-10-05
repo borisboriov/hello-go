@@ -18,6 +18,17 @@ func AddTransaction(tx Transaction) error {
 	if tx.Amount == 0 {
 		return errors.New("transaction amount must not be zero")
 	}
+	if b, ok := budgets[tx.Category]; ok {
+		total := tx.Amount
+		for _, saved := range transactions {
+			if saved.Category == tx.Category {
+				total += saved.Amount
+			}
+		}
+		if total > b.Limit {
+			return errors.New("budget exceeded")
+		}
+	}
 	tx.ID = len(transactions) + 1
 	transactions = append(transactions, tx)
 	return nil
