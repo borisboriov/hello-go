@@ -1,10 +1,11 @@
-package main
+package ledger
 
 import (
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 )
 
@@ -33,6 +34,16 @@ func SetBudget(b Budget) error {
 	}
 	budgets[b.Category] = b
 	return nil
+}
+
+// ListBudgets возвращает копию бюджетов в стабильном порядке категорий.
+func ListBudgets() []Budget {
+	result := make([]Budget, 0, len(budgets))
+	for _, b := range budgets {
+		result = append(result, b)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Category < result[j].Category })
+	return result
 }
 
 func LoadBudgets(r io.Reader) error {

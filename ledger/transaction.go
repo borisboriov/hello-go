@@ -1,4 +1,4 @@
-package main
+package ledger
 
 import (
 	"errors"
@@ -16,6 +16,9 @@ type Transaction struct {
 }
 
 var transactions = make([]Transaction, 0)
+
+// ErrBudgetExceeded позволяет вызывающему коду распознать превышение бюджета.
+var ErrBudgetExceeded = errors.New("budget exceeded")
 
 // Validate проверяет поля транзакции, не изменяя данные и не логируя ошибки.
 // Date хранится строкой; проверка её формата в этой задаче не выполняется.
@@ -42,7 +45,7 @@ func AddTransaction(tx Transaction) error {
 			}
 		}
 		if total > b.Limit {
-			return errors.New("budget exceeded")
+			return ErrBudgetExceeded
 		}
 	}
 	tx.ID = len(transactions) + 1

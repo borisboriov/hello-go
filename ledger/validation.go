@@ -1,4 +1,4 @@
-package main
+package ledger
 
 // Validatable задаёт контракт проверки данных перед сохранением.
 type Validatable interface {
