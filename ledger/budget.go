@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"strings"
 )
 
 type Budget struct {
@@ -13,8 +15,24 @@ type Budget struct {
 
 var budgets = make(map[string]Budget)
 
-func SetBudget(b Budget) {
+// Validate проверяет поля бюджета, не изменяя данные и не логируя ошибки.
+func (b Budget) Validate() error {
+	if b.Limit <= 0 {
+		return errors.New("budget limit must be positive")
+	}
+	if strings.TrimSpace(b.Category) == "" {
+		return errors.New("budget category must not be empty")
+	}
+	return nil
+}
+
+// SetBudget добавляет или обновляет бюджет только после успешной валидации.
+func SetBudget(b Budget) error {
+	if err := b.Validate(); err != nil {
+		return fmt.Errorf("invalid budget: %w", err)
+	}
 	budgets[b.Category] = b
+	return nil
 }
 
 func LoadBudgets(r io.Reader) error {
@@ -26,8 +44,10 @@ func LoadBudgets(r io.Reader) error {
 	if err := json.Unmarshal(data, &loaded); err != nil {
 		return fmt.Errorf("не удалось разобрать JSON бюджетов: %w", err)
 	}
-	for _, b := range loaded {
-		SetBudget(b)
+	for i, b := range loaded {
+		if err := SetBudget(b); err != nil {
+			return fmt.Errorf("не удалось загрузить бюджет %d: %w", i+1, err)
+		}
 	}
 	return nil
 }

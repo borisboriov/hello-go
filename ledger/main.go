@@ -9,6 +9,21 @@ import (
 
 func main() {
 	fmt.Println("Ledger service started")
+	// Разные структуры проверяются через один интерфейс (полиморфизм).
+	validationExamples := []Validatable{
+		Transaction{Amount: 6500, Category: "Транспорт", Date: "2026-10-21"},
+		Budget{Category: "Транспорт", Limit: 150000},
+		Transaction{Amount: -100, Category: "Книги"},
+		Budget{Category: "Книги", Limit: 0},
+	}
+	for _, v := range validationExamples {
+		if err := CheckValid(v); err != nil {
+			fmt.Printf("Проверка %T: %v\n", v, err)
+			continue
+		}
+		fmt.Printf("Проверка %T: данные корректны\n", v)
+	}
+
 	file, err := os.Open("budgets.json")
 	if err != nil {
 		log.Fatalf("Не удалось открыть budgets.json: %v", err)
@@ -18,7 +33,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	SetBudget(Budget{Category: "Транспорт", Limit: 150000})
+	if err := SetBudget(Budget{Category: "Транспорт", Limit: 150000}); err != nil {
+		log.Fatal(err)
+	}
 	fmt.Println("Бюджеты загружены. Лимит на транспорт обновлён до 150000 коп.")
 
 	examples := []Transaction{

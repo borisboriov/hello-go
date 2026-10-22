@@ -1,6 +1,10 @@
 package main
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
 
 // Transaction представляет транзакцию. Amount хранит сумму в копейках.
 type Transaction struct {
@@ -13,10 +17,22 @@ type Transaction struct {
 
 var transactions = make([]Transaction, 0)
 
-// AddTransaction проверяет сумму и назначает ID перед сохранением.
+// Validate проверяет поля транзакции, не изменяя данные и не логируя ошибки.
+// Date хранится строкой; проверка её формата в этой задаче не выполняется.
+func (tx Transaction) Validate() error {
+	if tx.Amount <= 0 {
+		return errors.New("transaction amount must be positive")
+	}
+	if strings.TrimSpace(tx.Category) == "" {
+		return errors.New("transaction category must not be empty")
+	}
+	return nil
+}
+
+// AddTransaction валидирует транзакцию, проверяет бюджет и назначает ID.
 func AddTransaction(tx Transaction) error {
-	if tx.Amount == 0 {
-		return errors.New("transaction amount must not be zero")
+	if err := tx.Validate(); err != nil {
+		return fmt.Errorf("invalid transaction: %w", err)
 	}
 	if b, ok := budgets[tx.Category]; ok {
 		total := tx.Amount
