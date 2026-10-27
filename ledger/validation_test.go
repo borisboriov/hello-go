@@ -14,6 +14,8 @@ func TestTransactionValidate(t *testing.T) {
 	}{
 		{"ok", Transaction{Amount: 450, Category: "еда", Date: "2025-09-10"}, ""},
 		{"minimum_amount", Transaction{Amount: 1, Category: "еда"}, ""},
+		{"invalid_date", Transaction{Amount: 1, Category: "еда", Date: "2026-02-30"}, "date"},
+		{"too_large", Transaction{Amount: 100000000000000, Category: "еда"}, "NUMERIC"},
 		{"zero_amount", Transaction{Category: "еда"}, "amount"},
 		{"negative_amount", Transaction{Amount: -1, Category: "еда"}, "amount"},
 		{"empty_category", Transaction{Amount: 450}, "category"},

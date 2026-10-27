@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -10,6 +11,10 @@ import (
 )
 
 func main() {
+	if err := ledger.Open(context.Background()); err != nil {
+		log.Fatal(err)
+	}
+	defer ledger.Close()
 	fmt.Println("Ledger service started")
 	// Разные структуры проверяются через один интерфейс (полиморфизм).
 	validationExamples := []ledger.Validatable{
@@ -56,7 +61,11 @@ func main() {
 		fmt.Printf("Добавлено: %s\n", tx.Description)
 	}
 	fmt.Println("Сохранённые транзакции:")
-	for _, tx := range ledger.ListTransactions() {
+	transactions, err := ledger.ListTransactions()
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, tx := range transactions {
 		fmt.Printf("ID: %d | Сумма: %d коп. | Категория: %s | Описание: %s | Дата: %s\n", tx.ID, tx.Amount, tx.Category, tx.Description, tx.Date)
 	}
 }

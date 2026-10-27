@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,14 +15,22 @@ import (
 	"testing"
 
 	"github.com/borisboriov/hello-go/ledger"
+	"github.com/borisboriov/hello-go/ledger/testutil"
 )
 
 // HTTP-тесты с общим Ledger не вызывают t.Parallel: каждый сценарий очищает
 // хранилище перед запуском и после завершения всех своих запросов.
 func setupAPI(t *testing.T) http.Handler {
 	t.Helper()
-	ledger.Reset()
-	t.Cleanup(ledger.Reset)
+	testutil.Database(t)
+	if err := ledger.Open(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := ledger.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	return NewHandler()
 }
 
@@ -150,7 +159,7 @@ func TestTransactionEndpoints(t *testing.T) {
 				if got := decodeResponse[TransactionResponse](t, w); got != want {
 					t.Fatalf("transaction = %+v, want %+v", got, want)
 				}
-				expected = append(expected, want)
+				expected = append([]TransactionResponse{want}, expected...)
 			} else if tt.status == 409 {
 				if got := decodeResponse[map[string]string](t, w)["error"]; got != "budget exceeded" {
 					t.Fatalf("conflict error = %q", got)
@@ -205,7 +214,7 @@ func TestRoutes(t *testing.T) {
 		{"ping_method", "POST", "/ping", "GET", 405},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			w := request(t, setupAPI(t), tt.method, tt.path, "", tt.status)
+			w := request(t, NewHandler(), tt.method, tt.path, "", tt.status)
 			if got := w.Header().Get("Allow"); got != tt.allow {
 				t.Fatalf("Allow=%q, want %q", got, tt.allow)
 			}
@@ -283,7 +292,7 @@ func TestLogging(t *testing.T) {
 	previous := log.Writer()
 	log.SetOutput(&output)
 	t.Cleanup(func() { log.SetOutput(previous) })
-	request(t, setupAPI(t), "GET", "/missing", "", 404)
+	request(t, NewHandler(), "GET", "/missing", "", 404)
 	for _, part := range []string{"method=GET", "path=/missing", "duration="} {
 		if !strings.Contains(output.String(), part) {
 			t.Fatalf("log missing %q: %s", part, output.String())

@@ -7,16 +7,11 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"sync"
 
 	"github.com/borisboriov/hello-go/ledger"
 )
 
 const contentType = "application/json; charset=utf-8"
-
-// Ledger из ДЗ 2–4 хранит данные в общих slice/map. Все обращения из HTTP
-// синхронизируются, включая добавление транзакции и чтение назначенного ей ID.
-var ledgerMu sync.Mutex
 
 // NewHandler подключает маршруты и middleware ко всему HTTP-слою.
 func NewHandler() http.Handler {
@@ -44,6 +39,21 @@ func serveHTTP(w http.ResponseWriter, r *http.Request) {
 		default:
 			methodNotAllowed(w, "GET, POST")
 		}
+	case "/api/reports/summary":
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w, "GET")
+			return
+		}
+		report, err := ledger.GetReportSummary(r.Context(), r.URL.Query().Get("from"), r.URL.Query().Get("to"))
+		if errors.Is(err, ledger.ErrInvalidReportDates) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err != nil {
+			writeLedgerError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, report)
 	case "/ping":
 		if r.Method != http.MethodGet {
 			methodNotAllowed(w, "GET")
@@ -66,23 +76,20 @@ func createTransaction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	ledgerMu.Lock()
-	err := ledger.AddTransaction(tx)
+	tx, err := ledger.CreateTransaction(tx)
 	if err != nil {
-		ledgerMu.Unlock()
 		writeLedgerError(w, err)
 		return
 	}
-	saved := ledger.ListTransactions()
-	tx = saved[len(saved)-1]
-	ledgerMu.Unlock()
 	writeJSON(w, http.StatusCreated, transactionResponse(tx))
 }
 
 func listTransactions(w http.ResponseWriter, r *http.Request) {
-	ledgerMu.Lock()
-	transactions := ledger.ListTransactions()
-	ledgerMu.Unlock()
+	transactions, err := ledger.ListTransactions()
+	if err != nil {
+		writeLedgerError(w, err)
+		return
+	}
 	response := make([]TransactionResponse, 0, len(transactions))
 	for _, tx := range transactions {
 		response = append(response, transactionResponse(tx))
@@ -101,9 +108,7 @@ func createBudget(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	ledgerMu.Lock()
 	err := ledger.SetBudget(b)
-	ledgerMu.Unlock()
 	if err != nil {
 		writeLedgerError(w, err)
 		return
@@ -112,9 +117,11 @@ func createBudget(w http.ResponseWriter, r *http.Request) {
 }
 
 func listBudgets(w http.ResponseWriter, r *http.Request) {
-	ledgerMu.Lock()
-	budgets := ledger.ListBudgets()
-	ledgerMu.Unlock()
+	budgets, err := ledger.ListBudgets()
+	if err != nil {
+		writeLedgerError(w, err)
+		return
+	}
 	response := make([]BudgetResponse, 0, len(budgets))
 	for _, b := range budgets {
 		response = append(response, budgetResponse(b))
