@@ -20,10 +20,11 @@ func main() {
 }
 
 func run() error {
-	if err := ledger.Open(context.Background()); err != nil {
+	service, closeFn, err := ledger.Open(context.Background())
+	if err != nil {
 		return err
 	}
-	defer ledger.Close()
+	defer closeFn()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	addr := os.Getenv("GATEWAY_ADDR")
@@ -32,7 +33,7 @@ func run() error {
 	}
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           api.NewHandler(),
+		Handler:           api.NewHandler(service),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,

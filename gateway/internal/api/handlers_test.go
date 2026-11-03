@@ -18,20 +18,21 @@ import (
 	"github.com/borisboriov/hello-go/ledger/testutil"
 )
 
-// HTTP-тесты с общим Ledger не вызывают t.Parallel: каждый сценарий очищает
-// хранилище перед запуском и после завершения всех своих запросов.
-func setupAPI(t *testing.T) http.Handler {
+func setupService(t *testing.T) (ledger.Service, func() error) {
 	t.Helper()
 	testutil.Database(t)
-	if err := ledger.Open(context.Background()); err != nil {
+	svc, closeFn, err := ledger.Open(context.Background())
+	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		if err := ledger.Close(); err != nil {
-			t.Error(err)
-		}
-	})
-	return NewHandler()
+	t.Cleanup(func() { closeFn() })
+	return svc, closeFn
+}
+
+func setupAPI(t *testing.T) http.Handler {
+	t.Helper()
+	svc, _ := setupService(t)
+	return NewHandler(svc)
 }
 
 func request(t *testing.T, handler http.Handler, method, path, body string, wantStatus int) *httptest.ResponseRecorder {
@@ -214,7 +215,7 @@ func TestRoutes(t *testing.T) {
 		{"ping_method", "POST", "/ping", "GET", 405},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			w := request(t, NewHandler(), tt.method, tt.path, "", tt.status)
+			w := request(t, NewHandler(nil), tt.method, tt.path, "", tt.status)
 			if got := w.Header().Get("Allow"); got != tt.allow {
 				t.Fatalf("Allow=%q, want %q", got, tt.allow)
 			}
@@ -226,7 +227,8 @@ func TestRoutes(t *testing.T) {
 }
 
 func TestConcurrentRequests(t *testing.T) {
-	handlers := []http.Handler{setupAPI(t), NewHandler()}
+	svc, _ := setupService(t)
+	handlers := []http.Handler{NewHandler(svc), NewHandler(svc)}
 	request(t, handlers[0], "POST", "/api/budgets", `{"category":"еда","limit":20}`, 201)
 	var wg sync.WaitGroup
 	type result struct {
@@ -292,7 +294,7 @@ func TestLogging(t *testing.T) {
 	previous := log.Writer()
 	log.SetOutput(&output)
 	t.Cleanup(func() { log.SetOutput(previous) })
-	request(t, NewHandler(), "GET", "/missing", "", 404)
+	request(t, NewHandler(nil), "GET", "/missing", "", 404)
 	for _, part := range []string{"method=GET", "path=/missing", "duration="} {
 		if !strings.Contains(output.String(), part) {
 			t.Fatalf("log missing %q: %s", part, output.String())

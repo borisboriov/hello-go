@@ -13,17 +13,19 @@ import (
 	"github.com/borisboriov/hello-go/ledger/testutil"
 )
 
-func resetLedger(t *testing.T) {
+func resetLedger(t *testing.T) Service {
 	t.Helper()
 	testutil.Database(t)
-	if err := Open(context.Background()); err != nil {
+	svc, closeFn, err := Open(context.Background())
+	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if err := Close(); err != nil {
+		if err := closeFn(); err != nil {
 			t.Error(err)
 		}
 	})
+	return svc
 }
 
 func TestAddTransaction(t *testing.T) {
@@ -46,21 +48,21 @@ func TestAddTransaction(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resetLedger(t) // Сценарии с общим состоянием выполняются последовательно.
+			svc := resetLedger(t)
 			if tt.limit > 0 {
-				if err := SetBudget(Budget{Category: "еда", Limit: tt.limit}); err != nil {
+				if err := svc.SetBudget(context.Background(), Budget{Category: "еда", Limit: tt.limit}); err != nil {
 					t.Fatal(err)
 				}
 			}
 			for _, tx := range tt.saved {
-				if err := AddTransaction(tx); err != nil {
+				if err := svc.AddTransaction(context.Background(), tx); err != nil {
 					t.Fatal(err)
 				}
 			}
-			before := mustTransactions(t)
-			err := AddTransaction(tt.tx)
+			before := mustTransactions(t, svc)
+			err := svc.AddTransaction(context.Background(), tt.tx)
 			assertValidationError(t, err, tt.wantErr)
-			after := mustTransactions(t)
+			after := mustTransactions(t, svc)
 			if tt.wantErr != "" {
 				if tt.wantErr == "budget exceeded" && !errors.Is(err, ErrBudgetExceeded) {
 					t.Fatalf("error = %v, want ErrBudgetExceeded", err)
@@ -104,20 +106,20 @@ func TestSetBudget(t *testing.T) {
 		{"blank_category", Budget{Category: " \t", Limit: 6000}, "category"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			resetLedger(t)
+			svc := resetLedger(t)
 			original := Budget{Category: "еда", Limit: 5000}
-			if err := SetBudget(original); err != nil {
+			if err := svc.SetBudget(context.Background(), original); err != nil {
 				t.Fatal(err)
 			}
-			assertValidationError(t, SetBudget(tt.budget), tt.wantErr)
+			assertValidationError(t, svc.SetBudget(context.Background(), tt.budget), tt.wantErr)
 			want := original
 			if tt.wantErr == "" {
 				want = tt.budget
 			}
-			if got := mustBudgets(t); !reflect.DeepEqual(got, []Budget{want}) {
+			if got := mustBudgets(t, svc); !reflect.DeepEqual(got, []Budget{want}) {
 				t.Fatalf("budgets = %+v, want %+v", got, want)
 			}
-			if err := AddTransaction(Transaction{Category: "еда", Amount: want.Limit}); err != nil {
+			if err := svc.AddTransaction(context.Background(), Transaction{Category: "еда", Amount: want.Limit}); err != nil {
 				t.Fatalf("stored limit not applied: %v", err)
 			}
 		})
@@ -140,17 +142,17 @@ func TestLoadBudgets(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resetLedger(t)
-			err := LoadBudgets(tt.reader)
+			svc := resetLedger(t)
+			err := svc.LoadBudgets(context.Background(), tt.reader)
 			assertValidationError(t, err, tt.wantErr)
 			if tt.name == "read_error" && !errors.Is(err, readErr) {
 				t.Fatalf("read error not wrapped: %v", err)
 			}
 			if tt.wantErr != "" {
-				if len(mustBudgets(t)) != 0 {
+				if len(mustBudgets(t, svc)) != 0 {
 					t.Fatal("invalid budget was saved")
 				}
-			} else if got := mustBudgets(t); !reflect.DeepEqual(got, []Budget{{Category: "Книги", Limit: 100}}) {
+			} else if got := mustBudgets(t, svc); !reflect.DeepEqual(got, []Budget{{Category: "Книги", Limit: 100}}) {
 				t.Fatalf("loaded budgets = %+v", got)
 			}
 		})
@@ -158,39 +160,39 @@ func TestLoadBudgets(t *testing.T) {
 }
 
 func TestStorageCopies(t *testing.T) {
-	resetLedger(t)
+	svc := resetLedger(t)
 	for _, category := range []string{"b", "a"} {
-		if err := SetBudget(Budget{Category: category, Limit: 5000}); err != nil {
+		if err := svc.SetBudget(context.Background(), Budget{Category: category, Limit: 5000}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := AddTransaction(Transaction{Amount: 450, Category: "a"}); err != nil {
+	if err := svc.AddTransaction(context.Background(), Transaction{Amount: 450, Category: "a"}); err != nil {
 		t.Fatal(err)
 	}
-	snapshot := mustBudgets(t)
+	snapshot := mustBudgets(t, svc)
 	if snapshot[0].Category != "a" || snapshot[1].Category != "b" {
 		t.Fatalf("budgets not sorted: %+v", snapshot)
 	}
 	snapshot[0].Limit = 1
-	txs := mustTransactions(t)
+	txs := mustTransactions(t, svc)
 	txs[0].Amount = 9999
-	if mustBudgets(t)[0].Limit != 5000 || mustTransactions(t)[0].Amount != 450 {
+	if mustBudgets(t, svc)[0].Limit != 5000 || mustTransactions(t, svc)[0].Amount != 450 {
 		t.Fatal("modifying a returned list changed storage")
 	}
 }
 
-func mustTransactions(t *testing.T) []Transaction {
+func mustTransactions(t *testing.T, svc Service) []Transaction {
 	t.Helper()
-	rows, err := ListTransactions()
+	rows, err := svc.ListTransactions(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	return rows
 }
 
-func mustBudgets(t *testing.T) []Budget {
+func mustBudgets(t *testing.T, svc Service) []Budget {
 	t.Helper()
-	rows, err := ListBudgets()
+	rows, err := svc.ListBudgets(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

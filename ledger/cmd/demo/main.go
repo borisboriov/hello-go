@@ -11,10 +11,12 @@ import (
 )
 
 func main() {
-	if err := ledger.Open(context.Background()); err != nil {
+	ctx := context.Background()
+	service, closeFn, err := ledger.Open(ctx)
+	if err != nil {
 		log.Fatal(err)
 	}
-	defer ledger.Close()
+	defer closeFn()
 	fmt.Println("Ledger service started")
 	// Разные структуры проверяются через один интерфейс (полиморфизм).
 	validationExamples := []ledger.Validatable{
@@ -36,11 +38,11 @@ func main() {
 		log.Fatalf("Не удалось открыть budgets.json: %v", err)
 	}
 	defer file.Close()
-	if err := ledger.LoadBudgets(bufio.NewReader(file)); err != nil {
+	if err := service.LoadBudgets(ctx, bufio.NewReader(file)); err != nil {
 		log.Fatal(err)
 	}
 
-	if err := ledger.SetBudget(ledger.Budget{Category: "Транспорт", Limit: 150000}); err != nil {
+	if err := service.SetBudget(ctx, ledger.Budget{Category: "Транспорт", Limit: 150000}); err != nil {
 		log.Fatal(err)
 	}
 	fmt.Println("Бюджеты загружены. Лимит на транспорт обновлён до 150000 коп.")
@@ -54,14 +56,14 @@ func main() {
 		{Amount: 0, Category: "Книги", Description: "Нулевая сумма", Date: "2026-10-05"},
 	}
 	for _, tx := range examples {
-		if err := ledger.AddTransaction(tx); err != nil {
+		if err := service.AddTransaction(ctx, tx); err != nil {
 			fmt.Printf("Отказ: %s — %v\n", tx.Description, err)
 			continue
 		}
 		fmt.Printf("Добавлено: %s\n", tx.Description)
 	}
 	fmt.Println("Сохранённые транзакции:")
-	transactions, err := ledger.ListTransactions()
+	transactions, err := service.ListTransactions(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}

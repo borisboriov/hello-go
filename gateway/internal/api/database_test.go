@@ -42,8 +42,9 @@ func TestReportEndpoint(t *testing.T) {
 }
 
 func TestDatabaseErrorsAre500(t *testing.T) {
-	handler := setupAPI(t)
-	if err := ledger.Close(); err != nil {
+	svc, closeFn := setupService(t)
+	handler := NewHandler(svc)
+	if err := closeFn(); err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range []string{"/api/transactions", "/api/budgets", "/api/reports/summary?from=2026-01-01&to=2026-12-31"} {
