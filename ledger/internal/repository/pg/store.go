@@ -105,25 +105,35 @@ func (s *Store) ListTransactions(ctx context.Context) ([]domain.Transaction, err
 	return result, nil
 }
 
-func (s *Store) GetReportSummary(ctx context.Context, from, to string) (domain.ReportSummary, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT category, (SUM(amount)*100)::bigint
-        FROM expenses WHERE date >= $1::date AND date <= $2::date
-        GROUP BY category ORDER BY category`, from, to)
+// ReportCategories возвращает категории, по которым есть расходы за период.
+func (s *Store) ReportCategories(ctx context.Context, from, to string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT category FROM expenses
+        WHERE date >= $1::date AND date <= $2::date ORDER BY category`, from, to)
 	if err != nil {
-		return domain.ReportSummary{}, fmt.Errorf("query report: %w", err)
+		return nil, fmt.Errorf("query report categories: %w", err)
 	}
 	defer rows.Close()
-	result := domain.ReportSummary{From: from, To: to, Categories: make([]domain.CategoryTotal, 0)}
+	result := make([]string, 0)
 	for rows.Next() {
-		var item domain.CategoryTotal
-		if err := rows.Scan(&item.Category, &item.Amount); err != nil {
-			return domain.ReportSummary{}, fmt.Errorf("scan report: %w", err)
+		var category string
+		if err := rows.Scan(&category); err != nil {
+			return nil, fmt.Errorf("scan report category: %w", err)
 		}
-		result.Total += item.Amount
-		result.Categories = append(result.Categories, item)
+		result = append(result, category)
 	}
 	if err := rows.Err(); err != nil {
-		return domain.ReportSummary{}, fmt.Errorf("read report: %w", err)
+		return nil, fmt.Errorf("read report categories: %w", err)
 	}
 	return result, nil
+}
+
+// SumByCategoryPeriod считает сумму расходов категории за период в копейках.
+func (s *Store) SumByCategoryPeriod(ctx context.Context, category, from, to string) (int64, error) {
+	var sum int64
+	err := s.db.QueryRowContext(ctx, `SELECT (COALESCE(SUM(amount),0)*100)::bigint FROM expenses
+        WHERE category=$1 AND date >= $2::date AND date <= $3::date`, category, from, to).Scan(&sum)
+	if err != nil {
+		return 0, fmt.Errorf("sum category %q: %w", category, err)
+	}
+	return sum, nil
 }

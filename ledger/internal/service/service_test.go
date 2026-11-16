@@ -126,9 +126,22 @@ type testReports struct {
 	result domain.ReportSummary
 }
 
-func (r *testReports) GetReportSummary(context.Context, string, string) (domain.ReportSummary, error) {
+func (r *testReports) ReportCategories(context.Context, string, string) ([]string, error) {
 	r.calls++
-	return r.result, nil
+	names := make([]string, 0, len(r.result.Categories))
+	for _, c := range r.result.Categories {
+		names = append(names, c.Category)
+	}
+	return names, nil
+}
+
+func (r *testReports) SumByCategoryPeriod(_ context.Context, category, _, _ string) (int64, error) {
+	for _, c := range r.result.Categories {
+		if c.Category == category {
+			return c.Amount, nil
+		}
+	}
+	return 0, nil
 }
 
 type brokenCache struct{}
