@@ -1,6 +1,7 @@
 package api
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/borisboriov/hello-go/ledger"
@@ -39,6 +40,26 @@ func TestReportEndpoint(t *testing.T) {
 	request(t, handler, "GET", "/api/reports/summary", "", 400)
 	request(t, handler, "GET", "/api/reports/summary?from=2042-07-01&to=2042-06-01", "", 400)
 	request(t, handler, "POST", path, "{}", 405)
+}
+
+func TestBudgetsEndpointCache(t *testing.T) {
+	handler := setupAPI(t)
+	list := func() []BudgetResponse {
+		return decodeResponse[[]BudgetResponse](t, request(t, handler, "GET", "/api/budgets", "", 200))
+	}
+	if got := list(); len(got) != 0 {
+		t.Fatalf("budgets: %+v", got)
+	}
+	request(t, handler, "POST", "/api/budgets", `{"category":"a","limit":100}`, 201)
+	first, second := list(), list()
+	if !reflect.DeepEqual(first, second) || len(first) != 1 || first[0].Limit != 100 {
+		t.Fatalf("cached response differs: %+v vs %+v", first, second)
+	}
+	// Кеш прозрачен: обновление бюджета сразу видно в следующем списке.
+	request(t, handler, "POST", "/api/budgets", `{"category":"a","limit":250}`, 201)
+	if got := list(); len(got) != 1 || got[0].Limit != 250 {
+		t.Fatalf("stale budgets after update: %+v", got)
+	}
 }
 
 func TestDatabaseErrorsAre500(t *testing.T) {

@@ -90,3 +90,6 @@ func (e *ValidationError) Error() string { return e.Err.Error() }
 func (e *ValidationError) Unwrap() error { return e.Err }
 
 var ErrNotFound = errors.New("not found")
+
+// ErrCacheMiss отличает отсутствие ключа в кеше от сбоя самого кеша.
+var ErrCacheMiss = errors.New("cache miss")

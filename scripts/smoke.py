@@ -54,6 +54,7 @@ def main():
     older_day = datetime.date(year, 6, 1).isoformat()
     report_path = f"/api/reports/summary?from={older_day}&to={day}"
     key = f"report:summary:{older_day}:{day}"
+    budgets_key = "budgets:all"
     process = None
     with tempfile.TemporaryDirectory(prefix="hello-go-smoke-") as directory:
         binary = str(Path(directory) / "gateway")
@@ -100,6 +101,8 @@ def main():
                 assert [tx["id"] for tx in before] == [first["id"], older["id"]]
                 budget = [b for b in request("GET", "/api/budgets") if b["category"] == category]
                 assert budget == [{"category": category, "limit": 600}]
+                # Второй список приходит из Redis; запись бюджета удаляет ключ.
+                assert [b for b in request("GET", "/api/budgets") if b["category"] == category] == budget
                 sql = f"SELECT count(*), sum(amount) FROM expenses WHERE category='{category}'; SELECT count(*), max(limit_amount) FROM budgets WHERE category='{category}';"
                 rows = compose("postgres", "psql", "-U", "postgres", "-d", "cashapp", "-At", "-c", sql)
                 assert rows.splitlines() == ["2|1.75", "1|6.00"], rows
@@ -112,6 +115,12 @@ def main():
                 ttl = int(compose(*redis_args, "TTL", key))
                 assert 0 < ttl <= 30, ttl
                 assert json.loads(compose(*redis_args, "GET", key)) == report
+                budgets_ttl = int(compose(*redis_args, "TTL", budgets_key))
+                assert 0 < budgets_ttl <= 30, budgets_ttl
+                assert category in compose(*redis_args, "GET", budgets_key)
+                request("POST", "/api/budgets", {"category": category, "limit": 600}, 201)
+                assert compose(*redis_args, "EXISTS", budgets_key) == "0"
+                assert [b for b in request("GET", "/api/budgets") if b["category"] == category] == budget
                 stop()
                 start()
                 after = [tx for tx in request("GET", "/api/transactions") if tx["category"] == category]
@@ -122,7 +131,10 @@ def main():
                 output = logs.read()
                 assert f"report cache miss key={key}" in output, output
                 assert f"report cache hit key={key}" in output, output
-                print("PASS: startup failures, 201/409, SQL rows, sorting, Redis hit/miss + TTL, persistence after restart")
+                assert f"budgets cache miss key={budgets_key}" in output, output
+                assert f"budgets cache hit key={budgets_key}" in output, output
+                assert f"budgets cache invalidated key={budgets_key}" in output, output
+                print("PASS: startup failures, 201/409, SQL rows, sorting, Redis hit/miss + TTL (отчёт и бюджеты), persistence after restart")
                 print(f"Проверочная категория сохранена в БД: {category}")
             finally:
                 stop()

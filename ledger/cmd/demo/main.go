@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/borisboriov/hello-go/ledger"
 )
@@ -69,5 +70,24 @@ func main() {
 	}
 	for _, tx := range transactions {
 		fmt.Printf("ID: %d | Сумма: %d коп. | Категория: %s | Описание: %s | Дата: %s\n", tx.ID, tx.Amount, tx.Category, tx.Description, tx.Date)
+	}
+
+	// Повторные вызовы показывают кеш Redis: первый даёт cache miss, второй — cache hit.
+	fmt.Println("Кеш Redis: каждый запрос выполняется дважды (см. cache miss/hit в логах)")
+	for i := 1; i <= 2; i++ {
+		start := time.Now()
+		budgets, err := service.ListBudgets(ctx)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("ListBudgets #%d: бюджетов %d, за %s\n", i, len(budgets), time.Since(start))
+	}
+	for i := 1; i <= 2; i++ {
+		start := time.Now()
+		report, err := service.GetReportSummary(ctx, "2026-10-01", "2026-10-31")
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("GetReportSummary #%d: итого %d коп., категорий %d, за %s\n", i, report.Total, len(report.Categories), time.Since(start))
 	}
 }

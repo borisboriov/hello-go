@@ -12,26 +12,60 @@ import (
 	"github.com/borisboriov/hello-go/ledger/internal/domain"
 )
 
+const budgetsKey = "budgets:all"
+
 type Service struct {
 	repos        domain.Repositories
 	transactions domain.TransactionRunner
 	reports      domain.ReportRepository
 	cache        domain.ReportCache
+	budgetCache  domain.BudgetCache
 }
 
-func New(repos domain.Repositories, transactions domain.TransactionRunner, reports domain.ReportRepository, cache domain.ReportCache) *Service {
-	return &Service{repos: repos, transactions: transactions, reports: reports, cache: cache}
+func New(repos domain.Repositories, transactions domain.TransactionRunner, reports domain.ReportRepository, cache domain.ReportCache, budgetCache domain.BudgetCache) *Service {
+	return &Service{repos: repos, transactions: transactions, reports: reports, cache: cache, budgetCache: budgetCache}
 }
 
 func (s *Service) SetBudget(ctx context.Context, b domain.Budget) error {
 	if err := b.Validate(); err != nil {
 		return &domain.ValidationError{Err: err}
 	}
-	return s.repos.Budgets.SetBudget(ctx, b)
+	if err := s.repos.Budgets.SetBudget(ctx, b); err != nil {
+		return err
+	}
+	// Запись уже в БД: сбой кеша не отменяет её, устаревший список живёт не дольше TTL.
+	if s.budgetCache != nil {
+		if err := s.budgetCache.Delete(ctx, budgetsKey); err != nil {
+			log.Printf("budgets cache invalidation failed key=%s: %v", budgetsKey, err)
+		} else {
+			log.Printf("budgets cache invalidated key=%s", budgetsKey)
+		}
+	}
+	return nil
 }
 
 func (s *Service) ListBudgets(ctx context.Context) ([]domain.Budget, error) {
-	return s.repos.Budgets.ListBudgets(ctx)
+	if s.budgetCache != nil {
+		result, err := s.budgetCache.Get(ctx, budgetsKey)
+		if err == nil && result != nil {
+			log.Printf("budgets cache hit key=%s", budgetsKey)
+			return result, nil
+		}
+		if err != nil && !errors.Is(err, domain.ErrCacheMiss) {
+			log.Printf("budgets cache read failed key=%s: %v", budgetsKey, err)
+		}
+	}
+	log.Printf("budgets cache miss key=%s", budgetsKey)
+	result, err := s.repos.Budgets.ListBudgets(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if s.budgetCache != nil {
+		if err := s.budgetCache.Set(ctx, budgetsKey, result); err != nil {
+			log.Printf("budgets cache write failed: %v", err)
+		}
+	}
+	return result, nil
 }
 
 func (s *Service) ListTransactions(ctx context.Context) ([]domain.Transaction, error) {
@@ -103,6 +137,9 @@ func (s *Service) GetReportSummary(ctx context.Context, from, to string) (domain
 		if err == nil && result.From == from && result.To == to && result.Categories != nil {
 			log.Printf("report cache hit key=%s", key)
 			return result, nil
+		}
+		if err != nil && !errors.Is(err, domain.ErrCacheMiss) {
+			log.Printf("report cache read failed key=%s: %v", key, err)
 		}
 	}
 	log.Printf("report cache miss key=%s", key)

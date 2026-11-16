@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/borisboriov/hello-go/ledger/internal/domain"
@@ -19,6 +20,9 @@ var _ domain.ReportCache = (*Reports)(nil)
 
 func (c *Reports) Get(ctx context.Context, key string) (domain.ReportSummary, error) {
 	raw, err := c.client.Get(ctx, key).Bytes()
+	if errors.Is(err, redis.Nil) {
+		return domain.ReportSummary{}, domain.ErrCacheMiss
+	}
 	if err != nil {
 		return domain.ReportSummary{}, err
 	}

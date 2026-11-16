@@ -29,3 +29,11 @@ type ReportCache interface {
 	Get(context.Context, string) (ReportSummary, error)
 	Set(context.Context, string, ReportSummary) error
 }
+
+// BudgetCache хранит список всех бюджетов под одним ключом. Get возвращает
+// ErrCacheMiss, если значения нет; Delete вызывается после изменения бюджета.
+type BudgetCache interface {
+	Get(context.Context, string) ([]Budget, error)
+	Set(context.Context, string, []Budget) error
+	Delete(context.Context, string) error
+}

@@ -53,6 +53,8 @@ func Database(t *testing.T) *sql.DB {
 	t.Setenv("REDIS_ADDR", addr)
 	// Отдельная логическая БД для тестов; FLUSHDB не используется.
 	t.Setenv("REDIS_DB", "15")
+	// Ключ budgets:all общий для всех схем, поэтому очищается до и после теста.
+	clearKey(t, BudgetsKey)
 	connection, err := sql.Open("pgx", u.String())
 	if err != nil {
 		t.Fatal(err)
@@ -75,11 +77,21 @@ func Database(t *testing.T) *sql.DB {
 	return connection
 }
 
+// BudgetsKey — единственный ключ кеша списка бюджетов.
+const BudgetsKey = "budgets:all"
+
 // ReportKey очищает только ключ данного сценария до и после проверки.
 func ReportKey(t *testing.T, from, to string) string {
 	t.Helper()
-	client := redis.NewClient(&redis.Options{Addr: os.Getenv("REDIS_ADDR"), Password: os.Getenv("REDIS_PASSWORD"), DB: 15})
 	key := "report:summary:" + from + ":" + to
+	clearKey(t, key)
+	return key
+}
+
+// clearKey удаляет один ключ тестовой Redis DB сейчас и при завершении теста.
+func clearKey(t *testing.T, key string) {
+	t.Helper()
+	client := redis.NewClient(&redis.Options{Addr: os.Getenv("REDIS_ADDR"), Password: os.Getenv("REDIS_PASSWORD"), DB: 15})
 	if err := client.Del(context.Background(), key).Err(); err != nil {
 		client.Close()
 		t.Fatal(err)
@@ -90,5 +102,4 @@ func ReportKey(t *testing.T, from, to string) string {
 		}
 		client.Close()
 	})
-	return key
 }

@@ -28,9 +28,10 @@ func Open(ctx context.Context) (Service, func() error, error) {
 		return nil, nil, err
 	}
 	store := pg.New(connection)
-	svc := service.New(domain.Repositories{Budgets: store, Expenses: store}, pg.NewTransactions(connection), store, cache.NewReports(client))
+	svc := service.New(domain.Repositories{Budgets: store, Expenses: store}, pg.NewTransactions(connection), store, cache.NewReports(client), cache.NewBudgets(client))
 	closeFn := sync.OnceValue(func() error { return errors.Join(client.Close(), connection.Close()) })
 	log.Println("Ledger: connected to PostgreSQL (pool: open=10 idle=5)")
-	log.Println("Ledger: connected to Redis")
+	options := client.Options()
+	log.Printf("Ledger: connected to Redis (addr=%s db=%d)", options.Addr, options.DB)
 	return svc, closeFn, nil
 }

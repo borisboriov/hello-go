@@ -1,7 +1,7 @@
 # Gateway
 
 HTTP API для Ledger. Бюджеты и расходы сохраняются в PostgreSQL,
-отчёты кешируются в Redis на 30 секунд. Ledger подключён как библиотека
+отчёты и список бюджетов кешируются в Redis на 30 секунд. Ledger подключён как библиотека
 и запускается в одном процессе с Gateway.
 
 ## Запуск
@@ -70,14 +70,22 @@ curl -i -X POST http://localhost:8080/api/transactions \
   -d '{"amount":100,"category":"hw7-food","date":"2026-10-27"}'
 
 curl -i http://localhost:8080/api/transactions
+
+# Два списка подряд: budgets cache miss, затем budgets cache hit.
+curl -i http://localhost:8080/api/budgets
 curl -i http://localhost:8080/api/budgets
 
+# Два отчёта подряд: report cache miss, затем report cache hit.
 curl -i 'http://localhost:8080/api/reports/summary?from=2026-10-01&to=2026-10-31'
 curl -i 'http://localhost:8080/api/reports/summary?from=2026-10-01&to=2026-10-31'
 ```
 
-Два запроса отчёта подряд дают `cache miss`, затем `cache hit` в логах Ledger.
-Если ключ уже есть, для проверки miss дождитесь истечения TTL 30 секунд.
+В логах Ledger видны `cache miss` и `cache hit` (пример — в
+[README Ledger](../ledger/README.md#кеш-redis)). Если ключ уже есть, для
+проверки miss дождитесь истечения TTL 30 секунд или удалите его через
+`redis-cli DEL`. Любой `POST /api/budgets` удаляет `budgets:all`, поэтому
+следующий `GET /api/budgets` снова даёт `cache miss` и сразу показывает
+новый лимит. Ответы с кешем и без него одинаковы.
 
 Из корня проекта можно посмотреть строки и TTL напрямую:
 
@@ -85,6 +93,7 @@ curl -i 'http://localhost:8080/api/reports/summary?from=2026-10-01&to=2026-10-31
 docker compose exec postgres psql -U postgres -d cashapp -c \
   "SELECT * FROM budgets WHERE category='hw7-food'; SELECT * FROM expenses WHERE category='hw7-food';"
 docker compose exec redis redis-cli -n 0 TTL report:summary:2026-10-01:2026-10-31
+docker compose exec redis redis-cli -n 0 TTL budgets:all
 ```
 
 Остановите сервер через Ctrl+C, запустите снова и повторите GET списков.
