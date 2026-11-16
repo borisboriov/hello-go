@@ -143,7 +143,7 @@ func (s *Service) GetReportSummary(ctx context.Context, from, to string) (domain
 		}
 	}
 	log.Printf("report cache miss key=%s", key)
-	result, err := s.reports.GetReportSummary(ctx, from, to)
+	result, err := s.calculateReport(ctx, from, to)
 	if err != nil {
 		return domain.ReportSummary{}, err
 	}

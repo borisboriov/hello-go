@@ -49,6 +49,69 @@ goose -dir ./ledger/migrations postgres "$DATABASE_URL" down
 405 — неподдерживаемый метод. JSON-контракты бюджетов и транзакций сохранены.
 Маршрут отчёта сохранён из задания 7.
 
+## Отчёт по категориям
+
+`GET /api/reports/summary?from=YYYY-MM-DD&to=YYYY-MM-DD` возвращает суммы расходов
+по категориям за период включительно. Суммы указаны в копейках, как во всём API.
+
+Ledger получает список категорий запросом `SELECT DISTINCT category` за период.
+Затем для каждой категории запускается отдельная горутина с `SUM(amount)`.
+Завершение координирует `sync.WaitGroup`. Каждая горутина пишет только в свою
+ячейку среза, а итог собирается после `wg.Wait()`, поэтому гонок нет.
+Пока идёт расчёт, фоновая горутина с `time.Ticker` раз в 400 мс пишет в лог
+`report: calculating...`. После расчёта или по `ctx.Done()` тикер останавливается.
+Все SQL-запросы выполняются через `QueryContext`/`QueryRowContext` с `ctx` запроса.
+
+Пример:
+
+```bash
+curl -i 'http://localhost:8080/api/reports/summary?from=2026-10-01&to=2026-10-31'
+```
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+
+{"from":"2026-10-01","to":"2026-10-31","total":252356,
+ "categories":[{"category":"еда","amount":123456},
+               {"category":"кафе","amount":50000},
+               {"category":"транспорт","amount":78900}]}
+```
+
+Ошибки:
+
+| Код | Когда | Тело |
+|-----|-------|------|
+| 400 | нет `from`/`to`, неверный формат даты или `from > to` | `{"error":"from and to must be YYYY-MM-DD with from <= to"}` |
+| 504 | истёк таймаут запроса или клиент отменил запрос | `{"error":"request timeout or canceled"}` |
+| 500 | ошибка БД | `{"error":"internal server error"}` |
+
+## Таймауты запросов
+
+Middleware `Timeout` применяется ко всем ручкам. Для каждого запроса он создаёт
+`context.WithTimeout` и передаёт контекст дальше через `r.WithContext(ctx)`.
+
+- Значение по умолчанию: **2 секунды** (константа `DefaultRequestTimeout` в `internal/api/middleware.go`).
+- Значение меняется переменной окружения `REQUEST_TIMEOUT` в формате `time.ParseDuration`:
+  `REQUEST_TIMEOUT=500ms`, `REQUEST_TIMEOUT=5s`. При некорректном значении используется 2s.
+- При превышении таймаута или отмене запроса API возвращает **504 Gateway Timeout**
+  и `{"error":"request timeout or canceled"}`.
+
+Проверка таймаута:
+
+```bash
+REQUEST_TIMEOUT=1ms go run .
+curl -i 'http://localhost:8080/api/reports/summary?from=2026-10-01&to=2026-10-31'
+# HTTP/1.1 504 Gateway Timeout
+# в логе:
+# report: heartbeat stopped by ctx.Done: context deadline exceeded
+# report: calculation aborted by ctx.Done: context deadline exceeded
+```
+
+Отчёт кешируется в Redis на 30 секунд. Чтобы проверить таймаут на реальном
+расчёте, выберите период, которого ещё нет в кеше, или очистите кеш командой
+`redis-cli FLUSHDB`.
+
 ## Проверка через cURL
 
 Для повторной проверки используйте новую категорию:

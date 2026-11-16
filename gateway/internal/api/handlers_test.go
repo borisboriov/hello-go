@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/borisboriov/hello-go/ledger"
 	"github.com/borisboriov/hello-go/ledger/testutil"
@@ -277,10 +278,12 @@ func TestLedgerErrorResponses(t *testing.T) {
 		{"exceeded", ledger.ErrBudgetExceeded, 409, "budget exceeded"},
 		{"wrapped_exceeded", fmt.Errorf("wrapped: %w", ledger.ErrBudgetExceeded), 409, "budget exceeded"},
 		{"unexpected", errors.New("private internal details"), 500, "internal server error"},
+		{"timeout", fmt.Errorf("query: %w", context.DeadlineExceeded), 504, "request timeout or canceled"},
+		{"canceled", context.Canceled, 504, "request timeout or canceled"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
-			writeLedgerError(w, tt.err)
+			writeLedgerError(w, httptest.NewRequest("GET", "/", nil), tt.err)
 			got := decodeResponse[map[string]string](t, w)
 			if w.Code != tt.status || len(got) != 1 || got["error"] != tt.message || w.Header().Get("Content-Type") != "application/json; charset=utf-8" {
 				t.Fatalf("incorrect error mapping: status=%d body=%s", w.Code, w.Body)
@@ -299,5 +302,36 @@ func TestLogging(t *testing.T) {
 		if !strings.Contains(output.String(), part) {
 			t.Fatalf("log missing %q: %s", part, output.String())
 		}
+	}
+}
+
+// slowService отвечает на отчёт только после отмены ctx — как зависший SQL-запрос.
+type slowService struct{ ledger.Service }
+
+func (slowService) GetReportSummary(ctx context.Context, _, _ string) (ledger.ReportSummary, error) {
+	<-ctx.Done()
+	return ledger.ReportSummary{}, ctx.Err()
+}
+
+func TestTimeoutMiddlewareReturns504(t *testing.T) {
+	handler := NewHandlerWithTimeout(slowService{}, 20*time.Millisecond)
+	w := request(t, handler, "GET", "/api/reports/summary?from=2026-01-01&to=2026-01-31", "", 504)
+	if got := decodeResponse[map[string]string](t, w); got["error"] != "request timeout or canceled" {
+		t.Fatal(got)
+	}
+}
+
+func TestRequestTimeoutFromEnv(t *testing.T) {
+	t.Setenv("REQUEST_TIMEOUT", "")
+	if RequestTimeoutFromEnv() != 2*time.Second {
+		t.Fatal("default must be 2s")
+	}
+	t.Setenv("REQUEST_TIMEOUT", "50ms")
+	if RequestTimeoutFromEnv() != 50*time.Millisecond {
+		t.Fatal("env not applied")
+	}
+	t.Setenv("REQUEST_TIMEOUT", "bad")
+	if RequestTimeoutFromEnv() != 2*time.Second {
+		t.Fatal("invalid value must fall back to default")
 	}
 }

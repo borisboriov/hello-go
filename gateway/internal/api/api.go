@@ -1,12 +1,14 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/borisboriov/hello-go/ledger"
 )
@@ -16,9 +18,15 @@ const contentType = "application/json; charset=utf-8"
 type Handler struct{ service ledger.Service }
 
 // NewHandler подключает маршруты и middleware ко всему HTTP-слою.
+// Таймаут берётся из REQUEST_TIMEOUT (по умолчанию DefaultRequestTimeout).
 func NewHandler(service ledger.Service) http.Handler {
+	return NewHandlerWithTimeout(service, RequestTimeoutFromEnv())
+}
+
+// NewHandlerWithTimeout позволяет задать таймаут явно (например, в тестах).
+func NewHandlerWithTimeout(service ledger.Service, timeout time.Duration) http.Handler {
 	h := &Handler{service: service}
-	return Logging(http.HandlerFunc(h.serveHTTP))
+	return Logging(Timeout(timeout)(http.HandlerFunc(h.serveHTTP)))
 }
 
 func (h *Handler) serveHTTP(w http.ResponseWriter, r *http.Request) {
@@ -53,7 +61,7 @@ func (h *Handler) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err != nil {
-			writeLedgerError(w, err)
+			writeLedgerError(w, r, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, report)
@@ -77,7 +85,7 @@ func (h *Handler) createTransaction(w http.ResponseWriter, r *http.Request) {
 	tx := request.toDomain()
 	tx, err := h.service.CreateTransaction(r.Context(), tx)
 	if err != nil {
-		writeLedgerError(w, err)
+		writeLedgerError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, transactionResponse(tx))
@@ -86,7 +94,7 @@ func (h *Handler) createTransaction(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) listTransactions(w http.ResponseWriter, r *http.Request) {
 	transactions, err := h.service.ListTransactions(r.Context())
 	if err != nil {
-		writeLedgerError(w, err)
+		writeLedgerError(w, r, err)
 		return
 	}
 	response := make([]TransactionResponse, 0, len(transactions))
@@ -105,7 +113,7 @@ func (h *Handler) createBudget(w http.ResponseWriter, r *http.Request) {
 	b := request.toDomain()
 	err := h.service.SetBudget(r.Context(), b)
 	if err != nil {
-		writeLedgerError(w, err)
+		writeLedgerError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, budgetResponse(b))
@@ -114,7 +122,7 @@ func (h *Handler) createBudget(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) listBudgets(w http.ResponseWriter, r *http.Request) {
 	budgets, err := h.service.ListBudgets(r.Context())
 	if err != nil {
-		writeLedgerError(w, err)
+		writeLedgerError(w, r, err)
 		return
 	}
 	response := make([]BudgetResponse, 0, len(budgets))
@@ -138,7 +146,13 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, target any) error {
 	return nil
 }
 
-func writeLedgerError(w http.ResponseWriter, err error) {
+func writeLedgerError(w http.ResponseWriter, r *http.Request, err error) {
+	// Драйвер БД не всегда оборачивает ошибку контекста, поэтому проверяем и сам ctx.
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || r.Context().Err() != nil {
+		log.Printf("request aborted path=%s: %v", r.URL.Path, err)
+		writeError(w, TimeoutStatus, "request timeout or canceled")
+		return
+	}
 	var validation *ledger.ValidationError
 	if errors.As(err, &validation) {
 		writeError(w, http.StatusBadRequest, validation.Error())

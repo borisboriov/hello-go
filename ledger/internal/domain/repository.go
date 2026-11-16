@@ -23,7 +23,10 @@ type TransactionRunner interface {
 	WithinTransaction(context.Context, func(Repositories) error) error
 }
 type ReportRepository interface {
-	GetReportSummary(context.Context, string, string) (ReportSummary, error)
+	// ReportCategories возвращает категории расходов за период [from, to].
+	ReportCategories(ctx context.Context, from, to string) ([]string, error)
+	// SumByCategoryPeriod возвращает сумму расходов категории за период в копейках.
+	SumByCategoryPeriod(ctx context.Context, category, from, to string) (int64, error)
 }
 type ReportCache interface {
 	Get(context.Context, string) (ReportSummary, error)
