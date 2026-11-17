@@ -49,6 +49,9 @@ func (s *Service) ListBudgets(ctx context.Context) ([]domain.Budget, error) {
 		result, err := s.budgetCache.Get(ctx, budgetsKey)
 		if err == nil && result != nil {
 			log.Printf("budgets cache hit key=%s", budgetsKey)
+			if err := ctx.Err(); err != nil {
+				return result, err
+			}
 			return result, nil
 		}
 		if err != nil && !errors.Is(err, domain.ErrCacheMiss) {
@@ -64,6 +67,9 @@ func (s *Service) ListBudgets(ctx context.Context) ([]domain.Budget, error) {
 		if err := s.budgetCache.Set(ctx, budgetsKey, result); err != nil {
 			log.Printf("budgets cache write failed: %v", err)
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return result, err
 	}
 	return result, nil
 }
@@ -105,6 +111,9 @@ func (s *Service) CreateTransaction(ctx context.Context, tx domain.Transaction) 
 	if err != nil {
 		return domain.Transaction{}, err
 	}
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
 	return result, nil
 }
 
@@ -136,6 +145,9 @@ func (s *Service) GetReportSummary(ctx context.Context, from, to string) (domain
 		result, err := s.cache.Get(ctx, key)
 		if err == nil && result.From == from && result.To == to && result.Categories != nil {
 			log.Printf("report cache hit key=%s", key)
+			if err := ctx.Err(); err != nil {
+				return result, err
+			}
 			return result, nil
 		}
 		if err != nil && !errors.Is(err, domain.ErrCacheMiss) {
@@ -151,6 +163,9 @@ func (s *Service) GetReportSummary(ctx context.Context, from, to string) (domain
 		if err := s.cache.Set(ctx, key, result); err != nil {
 			log.Printf("report cache write failed: %v", err)
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return result, err
 	}
 	return result, nil
 }
