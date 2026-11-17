@@ -19,6 +19,9 @@ func (b Budget) Validate() error {
 	if int64(b.Limit) > 99999999999999 {
 		return errors.New("budget limit exceeds NUMERIC(14,2)")
 	}
+	if strings.ContainsRune(b.Category, 0) {
+		return errors.New("budget category must not contain NUL")
+	}
 	if strings.TrimSpace(b.Category) == "" {
 		return errors.New("budget category must not be empty")
 	}
@@ -45,6 +48,9 @@ func (tx Transaction) Validate() error {
 	}
 	if int64(tx.Amount) > 99999999999999 {
 		return errors.New("transaction amount exceeds NUMERIC(14,2)")
+	}
+	if strings.ContainsRune(tx.Category, 0) || strings.ContainsRune(tx.Description, 0) {
+		return errors.New("transaction text must not contain NUL")
 	}
 	if strings.TrimSpace(tx.Category) == "" {
 		return errors.New("transaction category must not be empty")
