@@ -37,6 +37,17 @@ type Transaction struct {
 	Date        string
 }
 
+type BulkImportSummary struct {
+	Accepted int64
+	Rejected int64
+	Errors   []BulkImportError
+}
+
+type BulkImportError struct {
+	Index int
+	Err   error
+}
+
 // ErrBudgetExceeded позволяет вызывающему коду распознать превышение бюджета.
 var ErrBudgetExceeded = errors.New("budget exceeded")
 

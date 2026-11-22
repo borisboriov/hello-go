@@ -37,6 +37,7 @@ goose -dir ./ledger/migrations postgres "$DATABASE_URL" down
 | GET | `/api/budgets` | 200, массив бюджетов |
 | POST | `/api/transactions` | 201, расход с назначенным ID |
 | GET | `/api/transactions` | 200, массив расходов |
+| POST | `/api/transactions/bulk` | 200, сводка пакетного импорта |
 | GET | `/api/reports/summary?from=2026-10-01&to=2026-10-31` | 200, отчёт за период |
 | GET | `/ping` | 200, `{"message":"pong"}` |
 
@@ -48,6 +49,48 @@ goose -dir ./ledger/migrations postgres "$DATABASE_URL" down
 409 — превышен бюджет, 500 — ошибка БД, 404 — неизвестный путь,
 405 — неподдерживаемый метод. JSON-контракты бюджетов и транзакций сохранены.
 Маршрут отчёта сохранён из задания 7.
+
+## Пакетный импорт
+
+`POST /api/transactions/bulk` принимает JSON-массив в том же формате, что и
+одиночный `POST /api/transactions`. `?workers=4` задаёт размер пула Ledger.
+Значение по умолчанию — 4. Число одновременно работающих воркеров ограничено
+32 и размером массива. Для `workers` принимается положительное целое число.
+
+Каждая транзакция проверяется и сохраняется отдельно с учётом лимита бюджета.
+Завершившийся импорт возвращает `200 OK` со счётчиками `accepted` и `rejected`
+и массивом `errors`. Индексы ошибок соответствуют позициям во входном массиве,
+начиная с нуля. Пустой массив даёт нулевые счётчики и `errors: []`.
+
+Пример для новой категории `bulk-demo-food`.
+
+```sh
+curl -i -X POST http://localhost:8080/api/budgets \
+  -H 'Content-Type: application/json' \
+  -d '{"category":"bulk-demo-food","limit":500}'
+
+curl -i -X POST 'http://localhost:8080/api/transactions/bulk?workers=3' \
+  -H 'Content-Type: application/json' \
+  -d '[{"amount":450,"category":"bulk-demo-food","description":"ланч"},
+       {"amount":0,"category":"bulk-demo-food"},
+       {"amount":600,"category":"bulk-demo-food"}]'
+```
+
+```json
+{
+  "accepted": 1,
+  "rejected": 2,
+  "errors": [
+    {"index": 1, "error": "transaction amount must be positive"},
+    {"index": 2, "error": "budget exceeded"}
+  ]
+}
+```
+
+При неверном JSON или значении `workers` Gateway отвечает `400 Bad Request`.
+При отмене Ledger прекращает выдачу работ, дожидается воркеров и возвращает
+в Gateway частичную сводку и ошибку контекста. HTTP-ответ содержит `504` и
+`{"error":"request timeout or canceled"}`. Уже сохранённые расходы остаются в базе.
 
 ## Отчёт по категориям
 

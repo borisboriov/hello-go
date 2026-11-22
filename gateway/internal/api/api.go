@@ -41,6 +41,12 @@ func (h *Handler) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		default:
 			methodNotAllowed(w, "GET, POST")
 		}
+	case "/api/transactions/bulk":
+		if r.Method != http.MethodPost {
+			methodNotAllowed(w, "POST")
+			return
+		}
+		h.importTransactions(w, r)
 	case "/api/budgets":
 		switch r.Method {
 		case http.MethodPost:
@@ -78,7 +84,7 @@ func (h *Handler) serveHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) createTransaction(w http.ResponseWriter, r *http.Request) {
 	var request CreateTransactionRequest
-	if err := decodeJSON(w, r, &request); err != nil {
+	if err := decodeJSON(w, r, &request, "object"); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -106,7 +112,7 @@ func (h *Handler) listTransactions(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) createBudget(w http.ResponseWriter, r *http.Request) {
 	var request CreateBudgetRequest
-	if err := decodeJSON(w, r, &request); err != nil {
+	if err := decodeJSON(w, r, &request, "object"); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -132,38 +138,40 @@ func (h *Handler) listBudgets(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
-func decodeJSON(w http.ResponseWriter, r *http.Request, target any) error {
+func decodeJSON(w http.ResponseWriter, r *http.Request, target any, kind string) error {
 	defer r.Body.Close()
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
 		return fmt.Errorf("invalid JSON: %w", err)
 	}
-	// Принимается ровно один JSON-объект, без второго значения или мусора.
+	// Принимается ровно одно JSON-значение без второго значения или мусора.
 	if err := decoder.Decode(new(any)); err != io.EOF {
-		return errors.New("request body must contain a single JSON object")
+		return fmt.Errorf("request body must contain a single JSON %s", kind)
 	}
 	return nil
 }
 
 func writeLedgerError(w http.ResponseWriter, r *http.Request, err error) {
+	status, message := ledgerErrorResponse(r, err)
+	writeError(w, status, message)
+}
+
+func ledgerErrorResponse(r *http.Request, err error) (status int, message string) {
 	// Драйвер БД не всегда оборачивает ошибку контекста, поэтому проверяем и сам ctx.
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || r.Context().Err() != nil {
 		log.Printf("request aborted path=%s: %v", r.URL.Path, err)
-		writeError(w, TimeoutStatus, "request timeout or canceled")
-		return
+		return TimeoutStatus, "request timeout or canceled"
 	}
 	var validation *ledger.ValidationError
 	if errors.As(err, &validation) {
-		writeError(w, http.StatusBadRequest, validation.Error())
-		return
+		return http.StatusBadRequest, validation.Error()
 	}
 	if errors.Is(err, ledger.ErrBudgetExceeded) {
-		writeError(w, http.StatusConflict, "budget exceeded")
-		return
+		return http.StatusConflict, "budget exceeded"
 	}
 	log.Printf("ledger error: %v", err)
-	writeError(w, http.StatusInternalServerError, "internal server error")
+	return http.StatusInternalServerError, "internal server error"
 }
 
 func methodNotAllowed(w http.ResponseWriter, allow string) {

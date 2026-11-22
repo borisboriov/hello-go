@@ -84,6 +84,14 @@ func (s *Service) AddTransaction(ctx context.Context, tx domain.Transaction) err
 }
 
 func (s *Service) CreateTransaction(ctx context.Context, tx domain.Transaction) (domain.Transaction, error) {
+	result, err := s.createTransaction(ctx, tx)
+	if err != nil {
+		return result, err
+	}
+	return result, ctx.Err()
+}
+
+func (s *Service) createTransaction(ctx context.Context, tx domain.Transaction) (domain.Transaction, error) {
 	if err := tx.Validate(); err != nil {
 		return domain.Transaction{}, &domain.ValidationError{Err: err}
 	}
@@ -110,9 +118,6 @@ func (s *Service) CreateTransaction(ctx context.Context, tx domain.Transaction) 
 	})
 	if err != nil {
 		return domain.Transaction{}, err
-	}
-	if err := ctx.Err(); err != nil {
-		return result, err
 	}
 	return result, nil
 }

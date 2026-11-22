@@ -12,6 +12,8 @@ type Budget = domain.Budget
 type Transaction = domain.Transaction
 type CategoryTotal = domain.CategoryTotal
 type ReportSummary = domain.ReportSummary
+type BulkImportSummary = domain.BulkImportSummary
+type BulkImportError = domain.BulkImportError
 type Validatable = domain.Validatable
 type ValidationError = domain.ValidationError
 
@@ -25,6 +27,9 @@ type Service interface {
 	ListBudgets(context.Context) ([]Budget, error)
 	AddTransaction(context.Context, Transaction) error
 	CreateTransaction(context.Context, Transaction) (Transaction, error)
+	// ImportTransactions returns the finished attempts even when the context is canceled.
+	// A worker count of zero selects the default.
+	ImportTransactions(ctx context.Context, transactions []Transaction, workers int) (BulkImportSummary, error)
 	ListTransactions(context.Context) ([]Transaction, error)
 	LoadBudgets(context.Context, io.Reader) error
 	GetReportSummary(context.Context, string, string) (ReportSummary, error)
