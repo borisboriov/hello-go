@@ -6,11 +6,11 @@ HTTP API для Ledger. Бюджеты и расходы сохраняются 
 
 ## Запуск
 
-Для запуска Gateway в контейнере см. [инструкцию Docker Compose](../README.md#запуск-в-docker-compose).
-Для запуска через Go выполните следующие шаги.
+Порядок запуска в Docker есть в [корневом README](../README.md#запуск-в-docker-compose).
 
-Сначала подготовьте PostgreSQL, Redis и Goose по [инструкции Ledger](../ledger/README.md).
-Из корня проекта:
+Для `go run` сначала подготовьте PostgreSQL, Redis и Goose. [Инструкция Ledger](../ledger/README.md)
+
+Из корня проекта запустите миграции и Gateway.
 
 ```sh
 export DATABASE_URL='postgres://postgres:postgres@localhost:5432/cashapp?sslmode=disable'

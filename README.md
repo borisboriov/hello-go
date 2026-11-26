@@ -2,15 +2,9 @@
 
 Автор: Соскин Борис Яковлевич.
 
-В ДЗ №11 Gateway запускается в Docker Compose вместе с PostgreSQL и Redis.
-
-Ledger хранит бюджеты и расходы в PostgreSQL. Перед добавлением расхода
-проверяется лимит категории. Отчёты и список бюджетов кешируются в Redis
-на 30 секунд.
-Gateway использует прежние URL и JSON для бюджетов и транзакций.
-
-В проекте три Go-модуля: корневой пример, Ledger и Gateway. Ledger подключён
-к Gateway как библиотека, поэтому HTTP-сервер запускается одной командой.
+Gateway — HTTP API для учёта расходов. Ledger работает внутри Gateway как
+библиотека. Он хранит бюджеты и расходы в PostgreSQL, проверяет лимиты
+и кеширует отчёты и список бюджетов в Redis на 30 секунд.
 
 - [Подготовка PostgreSQL, Redis и миграций](ledger/README.md)
 - [Запуск Gateway и проверка через cURL](gateway/README.md)
@@ -18,71 +12,58 @@ Gateway использует прежние URL и JSON для бюджетов 
 
 ## Запуск в Docker Compose
 
-Понадобятся Docker с BuildKit, Docker Compose 2.17+ и Goose. Выполняйте
-команды из корня репозитория. Установка Goose описана в [README Ledger](ledger/README.md#подготовка-бд).
+Нужны Docker с BuildKit, Docker Compose 2.17+ и Goose. [Установка Goose](ledger/README.md#подготовка-бд)
 
-Если после предыдущего задания ещё запущен контейнер `hello-go-postgres-1`,
-остановите его перед запуском `db`. При прежнем имени Compose-проекта
-сервис `db` подключит уже созданный том PostgreSQL.
+Если ещё работает `hello-go-postgres-1` из прошлого задания, сначала
+остановите его. При том же имени Compose-проекта `db` подхватит старый том.
 
-1. Запустите PostgreSQL. Флаг `--wait` дожидается статуса `healthy`.
+Из корня проекта поднимаем базу, накатываем миграции и запускаем Gateway.
+Redis поднимется вместе с ним.
 
-   ```sh
-   docker compose up -d --wait db
-   ```
+```sh
+docker compose up -d --wait db
+export DATABASE_URL="postgres://postgres:postgres@127.0.0.1:${POSTGRES_PORT:-5432}/cashapp?sslmode=disable"
+goose -dir ./ledger/migrations postgres "$DATABASE_URL" up
+docker compose up -d --build --wait gateway
+docker compose ps
+```
 
-2. Примените миграции Goose с хоста через опубликованный порт PostgreSQL.
+В `docker compose ps` у Gateway должен быть статус `healthy`.
 
-   ```sh
-   export DATABASE_URL="postgres://postgres:postgres@127.0.0.1:${POSTGRES_PORT:-5432}/cashapp?sslmode=disable"
-   goose -dir ./ledger/migrations postgres "$DATABASE_URL" up
-   ```
-
-3. Соберите и запустите Gateway. Compose также запустит Redis и дождётся
-   готовности обеих зависимостей. В выводе `ps` статус Gateway — `healthy`.
-
-   ```sh
-   docker compose up -d --build --wait gateway
-   docker compose ps
-   ```
-
-| Переменная | Значение по умолчанию |
-| --- | --- |
-| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | `postgres`, `postgres`, `cashapp` в сервисе `db` |
-| `POSTGRES_PORT`, `REDIS_PORT` | Опубликованные порты хоста `5432` и `6379` на `127.0.0.1` |
-| `DATABASE_URL` | В Gateway — `postgres://postgres:postgres@db:5432/cashapp?sslmode=disable`. Для Goose на хосте используется адрес из шага 2 |
-| `REDIS_ADDR` | В Gateway — `redis:6379` |
-| `GATEWAY_ADDR` | `:8080` внутри контейнера. Compose публикует порт `8080` |
+В Compose заданы `POSTGRES_USER=postgres`, `POSTGRES_PASSWORD=postgres`
+и `POSTGRES_DB=cashapp`. У Gateway свой `DATABASE_URL` с адресом `db:5432`
+и `REDIS_ADDR=redis:6379`. Порты базы и Redis на хосте можно поменять через
+`POSTGRES_PORT` и `REDIS_PORT`. Gateway доступен на `localhost:8080`.
 
 ### Проверка HTTP
 
 ```sh
 docker compose exec gateway wget -qO- http://localhost:8080/ping
 curl -fsS http://localhost:8080/ping
-# В обоих случаях: {"message":"pong"}
-
-base=http://localhost:8080
-category="hw11-$(date +%s)-$$"
-day="$(date -u +%F)"
-
-# 201, затем 200 со списком бюджетов.
-curl -fsS -w '\n' "$base/api/budgets" -H 'Content-Type: application/json' \
-  -d "{\"category\":\"$category\",\"limit\":500}"
-curl -fsS -w '\n' "$base/api/budgets"
-
-# 201 для одиночного расхода, затем 200 с одним принятым расходом из пакета.
-curl -fsS -w '\n' "$base/api/transactions" -H 'Content-Type: application/json' \
-  -d "{\"category\":\"$category\",\"amount\":125,\"date\":\"$day\"}"
-curl -fsS -w '\n' "$base/api/transactions/bulk?workers=2" -H 'Content-Type: application/json' \
-  -d "[{\"category\":\"$category\",\"amount\":75,\"date\":\"$day\"}]"
-
-# Обе транзакции в списке, в отчёте для новой категории — 200 копеек.
-curl -fsS -w '\n' "$base/api/transactions"
-curl -fsS -w '\n' "$base/api/reports/summary?from=$day&to=$day"
 ```
 
-При повторной проверке за ту же дату отчёт обновится после истечения кеша
-через 30 секунд.
+Обе команды вернут `{"message":"pong"}`. Создадим бюджет и добавим два расхода,
+один обычным запросом, другой через пакетный импорт.
+
+```sh
+curl -i http://localhost:8080/api/budgets \
+  -H 'Content-Type: application/json' -d '{"category":"docker-demo","limit":500}'
+curl -i http://localhost:8080/api/budgets
+
+curl -i http://localhost:8080/api/transactions \
+  -H 'Content-Type: application/json' \
+  -d '{"category":"docker-demo","amount":125,"date":"2026-11-26"}'
+curl -i http://localhost:8080/api/transactions/bulk \
+  -H 'Content-Type: application/json' \
+  -d '[{"category":"docker-demo","amount":75,"date":"2026-11-26"}]'
+curl -i http://localhost:8080/api/transactions
+curl -i 'http://localhost:8080/api/reports/summary?from=2026-11-26&to=2026-11-26'
+```
+
+В отчёте для `docker-demo` должно быть 200 копеек. Если проверяете ещё раз,
+возьмите другую категорию и дату, чтобы старые расходы и кеш не мешали сверке.
+
+Стенд останавливается командой `docker compose down`. База остаётся в томе.
 
 ### Ручная сборка образов
 
@@ -91,11 +72,11 @@ docker build --build-context ledger=./ledger -t hello-go-gateway:local ./gateway
 docker build -t hello-go-ledger:local ./ledger
 ```
 
-Gateway получает исходники соседнего Go-модуля через контекст `ledger`.
-Отдельный образ Ledger содержит демонстрационную программу из `cmd/demo`.
+Контекст `ledger` нужен из-за `replace` в `gateway/go.mod`. В образ Ledger
+собирается демо из `cmd/demo`.
 
-Для проверки Gateway через `docker run` сначала примените миграции из шага 2.
-В каталоге клона `hello-go` с именем Compose-проекта по умолчанию выполните:
+Перед `docker run` примените миграции, как показано выше. Для обычного
+клона в каталоге `hello-go` команда выглядит так.
 
 ```sh
 docker compose up -d --wait db redis
@@ -105,9 +86,7 @@ docker run --rm --network hello-go_default -p 8080:8080 \
   -e 'REDIS_ADDR=redis:6379' hello-go-gateway:local
 ```
 
-В другом терминале вызовите `curl -fsS http://localhost:8080/ping`.
-Остановите ручной запуск через Ctrl+C. Чтобы остановить стенд, выполните
-`docker compose down`. Данные PostgreSQL сохраняются в томе `postgres_data`.
+Проверьте `/ping` из другого терминала. Чтобы остановить контейнер, нажмите Ctrl+C.
 
 ## Структура
 

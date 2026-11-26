@@ -47,7 +47,6 @@ def main():
     env.setdefault("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/cashapp?sslmode=disable")
     env.setdefault("REDIS_ADDR", "localhost:6379")
     env.setdefault("REDIS_DB", "0")
-    # SQL/Redis-проверки ниже используют локальные сервисы из docker-compose.yml.
     category = "smoke-" + uuid.uuid4().hex
     year = 3000 + (uuid.uuid4().int % 5000)
     day = datetime.date(year, 6, 10).isoformat()
