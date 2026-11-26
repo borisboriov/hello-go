@@ -47,7 +47,7 @@ def main():
     env.setdefault("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/cashapp?sslmode=disable")
     env.setdefault("REDIS_ADDR", "localhost:6379")
     env.setdefault("REDIS_DB", "0")
-    # SQL/Redis-проверки ниже используют локальные сервисы из compose.yaml.
+    # SQL/Redis-проверки ниже используют локальные сервисы из docker-compose.yml.
     category = "smoke-" + uuid.uuid4().hex
     year = 3000 + (uuid.uuid4().int % 5000)
     day = datetime.date(year, 6, 10).isoformat()
@@ -104,7 +104,7 @@ def main():
                 # Второй список приходит из Redis; запись бюджета удаляет ключ.
                 assert [b for b in request("GET", "/api/budgets") if b["category"] == category] == budget
                 sql = f"SELECT count(*), sum(amount) FROM expenses WHERE category='{category}'; SELECT count(*), max(limit_amount) FROM budgets WHERE category='{category}';"
-                rows = compose("postgres", "psql", "-U", "postgres", "-d", "cashapp", "-At", "-c", sql)
+                rows = compose("db", "psql", "-U", "postgres", "-d", "cashapp", "-At", "-c", sql)
                 assert rows.splitlines() == ["2|1.75", "1|6.00"], rows
                 report = request("GET", report_path)
                 assert report["categories"] == [{"category": category, "amount": 175}], report

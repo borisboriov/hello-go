@@ -6,6 +6,9 @@ HTTP API для Ledger. Бюджеты и расходы сохраняются 
 
 ## Запуск
 
+Для запуска Gateway в контейнере см. [инструкцию Docker Compose](../README.md#запуск-в-docker-compose).
+Для запуска через Go выполните следующие шаги.
+
 Сначала подготовьте PostgreSQL, Redis и Goose по [инструкции Ledger](../ledger/README.md).
 Из корня проекта:
 
@@ -198,7 +201,7 @@ curl -i 'http://localhost:8080/api/reports/summary?from=2026-10-01&to=2026-10-31
 Из корня проекта можно посмотреть строки и TTL напрямую:
 
 ```sh
-docker compose exec postgres psql -U postgres -d cashapp -c \
+docker compose exec db psql -U postgres -d cashapp -c \
   "SELECT * FROM budgets WHERE category='hw7-food'; SELECT * FROM expenses WHERE category='hw7-food';"
 docker compose exec redis redis-cli -n 0 TTL report:summary:2026-10-01:2026-10-31
 docker compose exec redis redis-cli -n 0 TTL budgets:all

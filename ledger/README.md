@@ -8,7 +8,7 @@
 Команды выполняются из корня проекта:
 
 ```sh
-docker compose up -d --wait
+docker compose up -d --wait db redis
 export DATABASE_URL='postgres://postgres:postgres@localhost:5432/cashapp?sslmode=disable'
 export REDIS_ADDR='localhost:6379'
 export REDIS_DB=0
